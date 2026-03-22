@@ -39,7 +39,3 @@ python3 "main(notebook).py"
 
 - The app currently uses two buttons: **Save** and **Open folder**.
 - The **Open folder** button opens a file picker (not a folder picker).
-
-## Author
-
-Ashutosh Pradhan
