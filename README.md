@@ -65,7 +65,8 @@ cp dist/NoteBook.desktop ~/.local/share/applications/notebook.desktop
 chmod +x ~/.local/share/applications/notebook.desktop
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 ```
-
+Note Book Icon: 
 ![Note Book Logo](assets/icon-img.png)
 
+NOte Book Preview:
 ![Note Book Application Preview](assets/preview-img.png)
