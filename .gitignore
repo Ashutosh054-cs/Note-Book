@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Build artifacts (PyInstaller)
+build/
+dist/
+*.spec
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor junk
+.DS_Store
+*.swp
+*.swo
+
+*.sh
