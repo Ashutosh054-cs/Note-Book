@@ -1,65 +1,71 @@
 # Note Book
 
-A simple desktop text editor built with Python and Tkinter.
+A modern desktop text editor built with Python + CustomTkinter.
 
 ## Features
 
-- Open files (`.txt`, `.c`, `.py`)
-- Edit text in a large text area
-- Save files (`.txt`, `.c`, `.py`)
-- Shows the currently opened/saved file path in the window title
-
-## Project Structure
-
-- `main(notebook).py` — main application script
-- `README.md` — project documentation
+- Open and save files easily
+- Supports: `.txt`, `.py`, `.c`, `.html`, `.css`, `.js`
+- Dark / Light / System theme mode switch
+- Live status bar:
+	- current line
+	- current column
+	- character count
+	- word count
+- Text zoom controls (with limits):
+	- Zoom In / Zoom Out buttons
+	- Keyboard shortcuts (`Ctrl` + `+`, `Ctrl` + `-`)
+	- Mouse zoom (`Ctrl` + scroll)
+- Responsive layout for resize/maximize
+- Custom app name: **Note Book**
+- Custom icon support (`noteBook.png`)
 
 ## Requirements
 
 - Python 3
-- Tkinter (usually included with Python)
+- `customtkinter`
+- Tkinter (normally included with Python)
 
-If Tkinter is missing on Linux, install it using your distro package manager (for example, `python3-tk` on Debian/Ubuntu).
+Install dependency:
 
-## Run the App
+```bash
+python3 -m pip install customtkinter
+```
 
-From the project folder, run:
+## Run
 
 ```bash
 python3 "main(notebook).py"
 ```
 
-## How to Use
+## Usage
 
 1. Click **Open folder** to open a file.
 2. Edit content in the text area.
-3. Click **Save** to save content to a file.
+3. Click **Save** to save changes.
+4. Use zoom controls when needed.
+5. Use mode selector to switch theme.
 
-## Notes
-
-- The app currently uses two buttons: **Save** and **Open folder**.
-- The **Open folder** button opens a file picker (not a folder picker).
-
-## Linux build (manual)
-
-To build a Linux app binary manually:
-
-1. Run the build script:
+## Manual Linux Build
 
 ```bash
 chmod +x build_linux.sh
 ./build_linux.sh
 ```
 
-2. Output files are created in `dist/`:
-	- `text-editor` (Linux executable)
-	- `text-editor.desktop` (desktop launcher)
+Build output:
 
-3. Optional: add launcher to app menu:
+- `dist/NoteBook` (Linux executable)
+- `dist/NoteBook.desktop` (desktop launcher)
+
+Optional: add launcher to app menu
 
 ```bash
-cp dist/text-editor.desktop ~/.local/share/applications/
+cp dist/NoteBook.desktop ~/.local/share/applications/notebook.desktop
+chmod +x ~/.local/share/applications/notebook.desktop
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 ```
 
-The app icon uses `noteBook.png` on Linux.
+![Note Book Logo](assets/icon-img.png)
+
+![Note Book Application Preview](assets/preview-img.png)
