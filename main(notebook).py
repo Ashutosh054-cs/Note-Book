@@ -1,6 +1,4 @@
 import tkinter as tk
-import os
-import sys
 from tkinter.filedialog import askopenfilename , asksaveasfilename
 
 
@@ -39,28 +37,9 @@ def update_status_bar(text_edit , status_bar):
     status_bar.config(text=f"Line: {int(line)}   Col: {int(col) + 1}   Chars: {chars}   Words: {words}")
 
 
-def get_asset_path(filename):
-    if getattr(sys, "frozen", False):
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, filename)
-
-
-def set_app_icon(screen):
-    try:
-        icon_path = get_asset_path("noteBook.png")
-        icon_image = tk.PhotoImage(file=icon_path)
-        screen.iconphoto(True, icon_image)
-        screen._icon_image = icon_image
-    except tk.TclError:
-        pass
-
-
 def main():
     screen = tk.Tk()
     screen.title(" Note Book")
-    set_app_icon(screen)
     screen.rowconfigure(0, minsize=400)
     screen.rowconfigure(1, weight=0)
     screen.columnconfigure(1, minsize=600, weight=1)
