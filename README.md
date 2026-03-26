@@ -4,21 +4,23 @@ A modern desktop text editor built with Python + CustomTkinter.
 
 ## Features
 
-- Open and save files easily
-- Supports: `.txt`, `.py`, `.c`, `.html`, `.css`, `.js`
-- Dark / Light / System theme mode switch
-- Live status bar:
-	- current line
-	- current column
-	- character count
-	- word count
-- Text zoom controls (with limits):
-	- Zoom In / Zoom Out buttons
-	- Keyboard shortcuts (`Ctrl` + `+`, `Ctrl` + `-`)
-	- Mouse zoom (`Ctrl` + scroll)
-- Responsive layout for resize/maximize
-- Custom app name: **Note Book**
-- Custom icon support (`noteBook.png`)
+- Open and save files quickly
+- Supports `.txt`, `.py`, `.c`, `.html`, `.css`, `.js`
+- Top formatting toolbar with:
+  - Bold
+  - Italic
+  - Text alignment (Left, Center, Right)
+  - Font family selector
+  - Font size selector
+- Font behavior for writing flow:
+  - Existing text keeps its current font style
+  - Newly typed text uses the newly selected font family/size
+- Theme switcher: Light / Dark / System
+- Live status bar with line, column, character count, and word count
+- Zoom controls with limits (`Ctrl + +`, `Ctrl + -`, and `Ctrl + mouse scroll`)
+- Keyboard shortcuts for formatting (`Ctrl + B`, `Ctrl + I`)
+- Responsive editor layout
+- Custom app name and icon
 
 ## Requirements
 
@@ -42,9 +44,10 @@ python3 "main(notebook).py"
 
 1. Click **Open folder** to open a file.
 2. Edit content in the text area.
-3. Click **Save** to save changes.
-4. Use zoom controls when needed.
-5. Use mode selector to switch theme.
+3. Use the top toolbar for bold, italic, alignment, font family, and font size.
+4. Click **Save** to save changes.
+5. Use zoom controls when needed.
+6. Use mode selector to switch theme.
 
 ## Manual Linux Build
 
@@ -68,5 +71,5 @@ update-desktop-database ~/.local/share/applications 2>/dev/null || true
 Note Book Icon: 
 ![Note Book Logo](assets/icon-img.png)
 
-NOte Book Preview:
-![Note Book Application Preview](assets/preview-img.png)
+Note Book Preview:
+![Note Book Application Preview](assets/preview-img-update3.png)
