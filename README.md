@@ -72,4 +72,4 @@ Note Book Icon:
 ![Note Book Logo](assets/icon-img.png)
 
 Note Book Preview:
-![Note Book Application Preview](assets/preview-img-update3.png)
+![Note Book Application Preview](assets/preview-image(note-book).png)
