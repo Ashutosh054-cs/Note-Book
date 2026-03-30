@@ -1,5 +1,7 @@
 import customtkinter 
 import os
+import shutil
+import subprocess
 import sys
 import tkinter.font as tkfont
 from tkinter import END, INSERT, PhotoImage, TclError, filedialog
@@ -13,6 +15,17 @@ customtkinter.set_appearance_mode("System")
 MIN_FONT_SIZE = 12
 MAX_FONT_SIZE = 36
 FONT_STEP = 2
+PAPER_TINT = "#FEF9E7"
+TEXT_COLOR = "#333333"
+SELECTION_BG = "#BFD6FF"
+SELECTION_FG = "#1F2A44"
+BUNDLED_FONT_DIR = "assets/fonts"
+FONT_FILE_EXTENSIONS = (".ttf", ".otf")
+PREFERRED_FONT_FAMILIES = [
+    "QEDaveMergens",
+    "QEGHHughes",
+    "QEPhillips",
+]
 
 #function for custom tkinter mode:
 def toggle_mode(new_toggle_mode):
@@ -79,6 +92,45 @@ def get_asset_path(filename):
     return os.path.join(base_path, filename)
 
 
+def get_bundled_font_files():
+    font_dir = get_asset_path(BUNDLED_FONT_DIR)
+    if not os.path.isdir(font_dir):
+        return []
+
+    font_files = []
+    for name in os.listdir(font_dir):
+        lower_name = name.lower()
+        if lower_name.endswith(FONT_FILE_EXTENSIONS):
+            font_files.append(os.path.join(font_dir, name))
+
+    return sorted(font_files)
+
+
+def install_bundled_fonts():
+    font_files = get_bundled_font_files()
+    if not font_files:
+        return False
+
+    target_dir = os.path.expanduser("~/.local/share/fonts/NoteBook")
+    os.makedirs(target_dir, exist_ok=True)
+
+    copied_any = False
+    for source_path in font_files:
+        target_path = os.path.join(target_dir, os.path.basename(source_path))
+        if (not os.path.exists(target_path)) or (os.path.getsize(source_path) != os.path.getsize(target_path)):
+            shutil.copy2(source_path, target_path)
+            copied_any = True
+
+    cache_command = shutil.which("fc-cache")
+    if cache_command and copied_any:
+        try:
+            subprocess.run([cache_command, "-f", target_dir], check=False, capture_output=True)
+        except OSError:
+            pass
+
+    return True
+
+
 def set_app_icon(screen):
     try:
         icon_path = get_asset_path("noteBook.png")
@@ -105,6 +157,16 @@ def freeze_existing_text_font(text_edit, family, size):
     tk_text.tag_lower(font_tag)
 
 
+def get_default_font_family():
+    available_fonts = {name.lower(): name for name in tkfont.families()}
+
+    for candidate in PREFERRED_FONT_FAMILIES:
+        resolved = available_fonts.get(candidate.lower())
+        if resolved:
+            return resolved
+    return "Helvetica"
+
+
 def main():
     screen = customtkinter.CTk()
     screen.title("Note Book")
@@ -116,17 +178,31 @@ def main():
     screen.columnconfigure(1, weight=1)
     screen.minsize(900, 550)
 
+    install_bundled_fonts()
+
     editor_frame = customtkinter.CTkFrame(screen)
     editor_frame.grid(row=1, column=1, sticky="nsew", padx=(8, 10), pady=(6, 6))
     editor_frame.rowconfigure(0, weight=1)
     editor_frame.columnconfigure(0, weight=1)
+    editor_frame.columnconfigure(1, weight=0)
 
-    font_state = {"size": 18, "family": "Helvetica"}
+    font_state = {"size": 18, "family": get_default_font_family()}
     current_font_size = {"value": font_state["size"]}
     #font will be replaced by the value passed on from option_font
     font = customtkinter.CTkFont(family=font_state["family"] , size=current_font_size["value"])
 
-    text_edit = customtkinter.CTkTextbox(editor_frame, wrap="word", font=font, undo=True) #Wrap ="none " will wont alloww to break the line , but warp="word " will help to break the line
+    text_edit = customtkinter.CTkTextbox(
+        editor_frame,
+        wrap="word",
+        fg_color=PAPER_TINT,
+        text_color=TEXT_COLOR,
+        border_width=0,
+        corner_radius=0,
+        font=font,
+        undo=True,
+    )
+
+    #Wrap ="none " will wont alloww to break the line , but warp="word " will help to break the line
     text_edit.grid(row=0, column=0, sticky="nsew")
 
     scrollbar = customtkinter.CTkScrollbar(editor_frame , orientation="vertical")
@@ -137,10 +213,36 @@ def main():
     status_bar.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 10))
 
     
+    notebook_refresh_job = {"id": None}
 
+    def apply_notebook_style():
+        tk_text = text_edit._textbox if hasattr(text_edit, "_textbox") else text_edit
+
+        tk_text.configure(
+            background=PAPER_TINT,
+            foreground=TEXT_COLOR,
+            insertbackground=TEXT_COLOR,
+            selectbackground=SELECTION_BG,
+            selectforeground=SELECTION_FG,
+        )
+
+        tk_text.tag_config("notebook_margin", lmargin1=22, lmargin2=22)
+        tk_text.tag_add("notebook_margin", "1.0", "end-1c")
+
+        tk_text.tag_lower("notebook_margin")
+
+    def schedule_notebook_refresh():
+        if notebook_refresh_job["id"] is not None:
+            screen.after_cancel(notebook_refresh_job["id"])
+        notebook_refresh_job["id"] = screen.after(35, run_notebook_refresh)
+
+    def run_notebook_refresh():
+        notebook_refresh_job["id"] = None
+        apply_notebook_style()
 
     def refresh_editor_ui(event=None):
         update_status_bar(text_edit , status_bar)
+        schedule_notebook_refresh()
 
     def apply_font_size(new_size):
         clamped_size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, int(new_size)))
@@ -155,30 +257,23 @@ def main():
         font_size_label.configure(text=f"Text Size: {clamped_size}")
         toolbar_controls["set_size"](clamped_size)
 
-    def apply_font_family(new_family):
-        previous_family = font_state["family"]
-        previous_size = font_state["size"]
-
-        freeze_existing_text_font(text_edit, previous_family, previous_size)
-
-        font_state["family"] = new_family
-        font.configure(family=new_family)
-
     toolbar_frame, toolbar_controls = create_formatting_toolbar(
         screen,
         text_edit,
         font_state,
-        apply_font_family,
         apply_font_size,
     )
     toolbar_frame.grid(row=0, column=1, sticky="ew", padx=(8, 10), pady=(10, 0))
+    toolbar_controls["refresh_notebook_style"] = schedule_notebook_refresh
 
     def zoom_in(event=None):
         apply_font_size(current_font_size["value"] + FONT_STEP)
+        schedule_notebook_refresh()
         return "break"
 
     def zoom_out(event=None):
         apply_font_size(current_font_size["value"] - FONT_STEP)
+        schedule_notebook_refresh()
         return "break"
 
     scrollbar.configure(command=text_edit.yview)
@@ -188,7 +283,11 @@ def main():
     frame = customtkinter.CTkFrame(screen)
     frame.grid_columnconfigure(0, weight=1)
     save_btn = customtkinter.CTkButton(frame , text="Save" , command=lambda: save_file(screen ,  text_edit))
-    open_btn = customtkinter.CTkButton(frame , text="Open folder" , command=lambda: open_file(screen , text_edit))
+    def open_file_and_refresh():
+        open_file(screen, text_edit)
+        refresh_editor_ui()
+
+    open_btn = customtkinter.CTkButton(frame , text="Open folder" , command=open_file_and_refresh)
     zoom_in_btn = customtkinter.CTkButton(frame, text="Zoom In (+)", command=zoom_in)
     zoom_out_btn = customtkinter.CTkButton(frame, text="Zoom Out (-)", command=zoom_out)
     font_size_label = customtkinter.CTkLabel(frame, text=f"Text Size: {current_font_size['value']}")
@@ -217,6 +316,7 @@ def main():
     screen.bind("<Control-minus>", zoom_out)
     screen.bind("<Control-b>", toolbar_controls["toggle_bold"])
     screen.bind("<Control-i>", toolbar_controls["toggle_italic"])
+    screen.bind("<F5>", toolbar_controls["refresh_style_shortcut"])
 
     refresh_editor_ui()
 
