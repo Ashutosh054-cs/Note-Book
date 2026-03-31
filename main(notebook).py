@@ -15,6 +15,9 @@ customtkinter.set_appearance_mode("System")
 MIN_FONT_SIZE = 12
 MAX_FONT_SIZE = 36
 FONT_STEP = 2
+MIN_ZOOM_PERCENT = 50
+MAX_ZOOM_PERCENT = 300
+ZOOM_STEP_PERCENT = 10
 PAPER_TINT = "#FEF9E7"
 TEXT_COLOR = "#333333"
 SELECTION_BG = "#BFD6FF"
@@ -131,6 +134,18 @@ def install_bundled_fonts():
     return True
 
 
+def get_bundled_font_family_candidates():
+    candidates = []
+    seen = set()
+    for font_path in get_bundled_font_files():
+        family_name = os.path.splitext(os.path.basename(font_path))[0].strip()
+        key = family_name.lower()
+        if family_name and key not in seen:
+            seen.add(key)
+            candidates.append(family_name)
+    return candidates
+
+
 def set_app_icon(screen):
     try:
         icon_path = get_asset_path("noteBook.png")
@@ -155,16 +170,127 @@ def freeze_existing_text_font(text_edit, family, size):
     tk_text.tag_config(font_tag, font=frozen_font)
     tk_text.tag_add(font_tag, "1.0", end_index)
     tk_text.tag_lower(font_tag)
+    return font_tag, frozen_font
+
+
+def get_scaled_font_size(base_size, zoom_percent):
+    return max(1, int(round(base_size * zoom_percent / 100)))
+
+
+def normalize_font_name(name):
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def build_available_font_maps():
+    available = sorted(set(tkfont.families()), key=lambda name: name.lower())
+    by_lower = {}
+    by_normalized = {}
+
+    for family in available:
+        lowered = family.lower()
+        normalized = normalize_font_name(family)
+        by_lower.setdefault(lowered, family)
+        by_normalized.setdefault(normalized, family)
+
+    return available, by_lower, by_normalized
+
+
+def resolve_installed_font_family(candidate, by_lower, by_normalized):
+    if not candidate:
+        return None
+
+    direct = by_lower.get(candidate.lower())
+    if direct:
+        return direct
+
+    return by_normalized.get(normalize_font_name(candidate))
+
+
+def get_fontconfig_family_aliases():
+    aliases = {}
+    fc_scan = shutil.which("fc-scan")
+    if not fc_scan:
+        return aliases
+
+    for font_path in get_bundled_font_files():
+        stem = os.path.splitext(os.path.basename(font_path))[0].strip()
+        if not stem:
+            continue
+
+        try:
+            result = subprocess.run(
+                [fc_scan, "--format=%{family}\\n", font_path],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError:
+            continue
+
+        if result.returncode != 0:
+            continue
+
+        first_line = (result.stdout or "").strip().splitlines()
+        if not first_line:
+            continue
+
+        family_name = first_line[0].split(",")[0].strip()
+        if family_name:
+            aliases[stem] = family_name
+
+    return aliases
 
 
 def get_default_font_family():
-    available_fonts = {name.lower(): name for name in tkfont.families()}
+    _available, by_lower, by_normalized = build_available_font_maps()
+    candidate_families = PREFERRED_FONT_FAMILIES + get_bundled_font_family_candidates()
 
-    for candidate in PREFERRED_FONT_FAMILIES:
-        resolved = available_fonts.get(candidate.lower())
+    for candidate in candidate_families:
+        resolved = resolve_installed_font_family(candidate, by_lower, by_normalized)
         if resolved:
             return resolved
     return "Helvetica"
+
+
+def get_font_family_options(default_family, fontconfig_aliases):
+    _available, by_lower, by_normalized = build_available_font_maps()
+    candidate_families = PREFERRED_FONT_FAMILIES
+    options = []
+    option_to_family = {}
+    seen = set()
+
+    def add_option(label, resolved_family):
+        key = label.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        options.append(label)
+        option_to_family[label] = resolved_family
+
+    for candidate in candidate_families:
+        resolved = resolve_installed_font_family(candidate, by_lower, by_normalized)
+        if not resolved:
+            alias_candidate = fontconfig_aliases.get(candidate)
+            if alias_candidate:
+                resolved = resolve_installed_font_family(alias_candidate, by_lower, by_normalized)
+        if resolved:
+            add_option(candidate, resolved)
+        else:
+            # Keep user-provided fonts visible in menu. They may become
+            # available after font cache refresh or app restart.
+            add_option(candidate, candidate)
+
+    add_option(default_family, default_family)
+
+    helvetica = resolve_installed_font_family("Helvetica", by_lower, by_normalized)
+    if helvetica:
+        add_option("Helvetica", helvetica)
+
+    if not options:
+        fallback = resolve_installed_font_family("TkDefaultFont", by_lower, by_normalized) or "Helvetica"
+        add_option(fallback, fallback)
+
+    return options, option_to_family
 
 
 def main():
@@ -179,6 +305,7 @@ def main():
     screen.minsize(900, 550)
 
     install_bundled_fonts()
+    fontconfig_aliases = get_fontconfig_family_aliases()
 
     editor_frame = customtkinter.CTkFrame(screen)
     editor_frame.grid(row=1, column=1, sticky="nsew", padx=(8, 10), pady=(6, 6))
@@ -187,9 +314,16 @@ def main():
     editor_frame.columnconfigure(1, weight=0)
 
     font_state = {"size": 18, "family": get_default_font_family()}
+    zoom_state = {"percent": 100}
     current_font_size = {"value": font_state["size"]}
+    frozen_base_fonts = {}
+    _font_list, available_by_lower, available_by_normalized = build_available_font_maps()
+
+    def get_display_font_size():
+        return get_scaled_font_size(font_state["size"], zoom_state["percent"])
+
     #font will be replaced by the value passed on from option_font
-    font = customtkinter.CTkFont(family=font_state["family"] , size=current_font_size["value"])
+    font = customtkinter.CTkFont(family=font_state["family"] , size=get_display_font_size())
 
     text_edit = customtkinter.CTkTextbox(
         editor_frame,
@@ -249,30 +383,82 @@ def main():
         previous_family = font_state["family"]
         previous_size = font_state["size"]
 
-        freeze_existing_text_font(text_edit, previous_family, previous_size)
+        tag_name, frozen_font = freeze_existing_text_font(
+            text_edit,
+            previous_family,
+            get_scaled_font_size(previous_size, zoom_state["percent"]),
+        )
+        frozen_base_fonts[tag_name] = {"font": frozen_font, "base_size": previous_size}
 
         current_font_size["value"] = clamped_size
         font_state["size"] = clamped_size
-        font.configure(size=clamped_size)
+        font.configure(size=get_display_font_size())
         font_size_label.configure(text=f"Text Size: {clamped_size}")
         toolbar_controls["set_size"](clamped_size)
+        toolbar_controls["refresh_tag_fonts"]()
+
+    def apply_font_family(new_family):
+        mapped_family = font_option_to_family.get(new_family, new_family)
+        resolved_family = resolve_installed_font_family(mapped_family, available_by_lower, available_by_normalized)
+        if not resolved_family:
+            resolved_family = resolve_installed_font_family(new_family, available_by_lower, available_by_normalized)
+        if not resolved_family:
+            return
+
+        previous_family = font_state["family"]
+        previous_size = font_state["size"]
+
+        if resolved_family == previous_family:
+            return
+
+        tag_name, frozen_font = freeze_existing_text_font(
+            text_edit,
+            previous_family,
+            get_scaled_font_size(previous_size, zoom_state["percent"]),
+        )
+        frozen_base_fonts[tag_name] = {"font": frozen_font, "base_size": previous_size}
+
+        font_state["family"] = resolved_family
+        font.configure(family=resolved_family)
+        font.configure(size=get_display_font_size())
+        toolbar_controls["set_family"](new_family)
+        toolbar_controls["refresh_tag_fonts"]()
+
+    font_family_values, font_option_to_family = get_font_family_options(font_state["family"], fontconfig_aliases)
 
     toolbar_frame, toolbar_controls = create_formatting_toolbar(
         screen,
         text_edit,
         font_state,
         apply_font_size,
+        apply_font_family,
+        font_family_values,
+        get_display_font_size,
     )
     toolbar_frame.grid(row=0, column=1, sticky="ew", padx=(8, 10), pady=(10, 0))
     toolbar_controls["refresh_notebook_style"] = schedule_notebook_refresh
 
+    def apply_zoom_percent(new_zoom_percent):
+        clamped_zoom = max(MIN_ZOOM_PERCENT, min(MAX_ZOOM_PERCENT, int(new_zoom_percent)))
+        if clamped_zoom == zoom_state["percent"]:
+            return
+
+        zoom_state["percent"] = clamped_zoom
+        font.configure(size=get_display_font_size())
+
+        for font_info in frozen_base_fonts.values():
+            font_info["font"].configure(size=get_scaled_font_size(font_info["base_size"], clamped_zoom))
+
+        toolbar_controls["refresh_tag_fonts"]()
+        zoom_label.configure(text=f"Zoom: {clamped_zoom}%")
+
     def zoom_in(event=None):
-        apply_font_size(current_font_size["value"] + FONT_STEP)
+        apply_zoom_percent(zoom_state["percent"] + ZOOM_STEP_PERCENT)
         schedule_notebook_refresh()
         return "break"
 
     def zoom_out(event=None):
-        apply_font_size(current_font_size["value"] - FONT_STEP)
+        apply_zoom_percent(zoom_state["percent"] - ZOOM_STEP_PERCENT)
         schedule_notebook_refresh()
         return "break"
 
@@ -291,14 +477,16 @@ def main():
     zoom_in_btn = customtkinter.CTkButton(frame, text="Zoom In (+)", command=zoom_in)
     zoom_out_btn = customtkinter.CTkButton(frame, text="Zoom Out (-)", command=zoom_out)
     font_size_label = customtkinter.CTkLabel(frame, text=f"Text Size: {current_font_size['value']}")
+    zoom_label = customtkinter.CTkLabel(frame, text=f"Zoom: {zoom_state['percent']}%")
     save_btn.grid(row=0, column=0 , padx=10 , pady=(10, 6) , sticky="ew")
     open_btn.grid(row=1 , column=0 , padx=10 , pady=6 , sticky="ew")
     zoom_in_btn.grid(row=2, column=0, padx=10, pady=6, sticky="ew")
     zoom_out_btn.grid(row=3, column=0, padx=10, pady=6, sticky="ew")
     font_size_label.grid(row=4, column=0, padx=10, pady=(2, 6), sticky="w")
+    zoom_label.grid(row=5, column=0, padx=10, pady=(0, 6), sticky="w")
     #Appereance mmode change code :
     option_toggle = customtkinter.CTkOptionMenu(frame , values=["Light" , "Dark" , "System"], command=toggle_mode)
-    option_toggle.grid(row=5, column=0 , padx=10, pady=(6, 10) , sticky="ew")
+    option_toggle.grid(row=6, column=0 , padx=10, pady=(6, 10) , sticky="ew")
     option_toggle.set("System")
     frame.grid(row=0,column=0 , rowspan=2, sticky="ns", padx=(10, 6), pady=(10, 6)) #ns = expand the frame to north and south
 
