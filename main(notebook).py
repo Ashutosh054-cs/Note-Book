@@ -462,6 +462,40 @@ def main():
         schedule_notebook_refresh()
         return "break"
 
+    tk_text = text_edit._textbox if hasattr(text_edit, "_textbox") else text_edit
+
+    def undo_text(event=None):
+        try:
+            tk_text.edit_undo()
+        except TclError:
+            pass
+        refresh_editor_ui()
+        return "break"
+
+    def redo_text(event=None):
+        try:
+            tk_text.edit_redo()
+        except TclError:
+            pass
+        refresh_editor_ui()
+        return "break"
+
+    def handle_undo_redo_shortcuts(event):
+        ctrl_pressed = bool(event.state & 0x4)
+        shift_pressed = bool(event.state & 0x1)
+        key = event.keysym.lower()
+
+        if not ctrl_pressed:
+            return None
+
+        if key == "z" and not shift_pressed:
+            return undo_text(event)
+
+        if key == "y" or (key == "z" and shift_pressed):
+            return redo_text(event)
+
+        return None
+
     scrollbar.configure(command=text_edit.yview)
     text_edit.configure(yscrollcommand=scrollbar.set)
 
@@ -498,6 +532,11 @@ def main():
     text_edit.bind("<Control-MouseWheel>", lambda event: zoom_in() if event.delta > 0 else zoom_out())
     text_edit.bind("<Control-Button-4>", zoom_in)
     text_edit.bind("<Control-Button-5>", zoom_out)
+    tk_text.bind("<Control-z>", undo_text)
+    tk_text.bind("<Control-y>", redo_text)
+    tk_text.bind("<Control-Shift-Z>", redo_text)
+    tk_text.bind("<Control-Shift-z>", redo_text)
+    tk_text.bind("<KeyPress>", handle_undo_redo_shortcuts, add="+")
 
     screen.bind("<Control-plus>", zoom_in)
     screen.bind("<Control-equal>", zoom_in)
