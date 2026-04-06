@@ -20,9 +20,19 @@ def create_formatting_toolbar(
 
     bold_font = tkfont.Font(family=font_state["family"], size=font_state["size"], weight="bold")
     italic_font = tkfont.Font(family=font_state["family"], size=font_state["size"], slant="italic")
+    last_tag_font_signature = {"family": None, "size": None}
 
     def update_tag_fonts():
         display_size = get_display_font_size()
+        family = font_state["family"]
+        if (
+            last_tag_font_signature["family"] == family
+            and last_tag_font_signature["size"] == display_size
+        ):
+            return
+
+        last_tag_font_signature["family"] = family
+        last_tag_font_signature["size"] = display_size
         bold_font.configure(family=font_state["family"], size=display_size, weight="bold")
         italic_font.configure(family=font_state["family"], size=display_size, slant="italic")
         tk_text.tag_config("bold", font=bold_font)

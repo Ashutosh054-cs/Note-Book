@@ -6,6 +6,7 @@ import sys
 import tkinter.font as tkfont
 from tkinter import END, INSERT, PhotoImage, TclError, filedialog
 from formatting_toolbar import create_formatting_toolbar
+from unsaved_changes_dialog import confirm_unsaved_changes, mark_document_clean
 
 #Code for custom tkinter :
 #we will use custom tkinter to toggle between dark and light mode which using the system user preference
@@ -15,9 +16,11 @@ customtkinter.set_appearance_mode("System")
 MIN_FONT_SIZE = 12
 MAX_FONT_SIZE = 36
 FONT_STEP = 2
-MIN_ZOOM_PERCENT = 50
-MAX_ZOOM_PERCENT = 300
+MIN_ZOOM_SCALE = 1.0
+MAX_ZOOM_SCALE = 3.0
 ZOOM_STEP_PERCENT = 10
+ZOOM_ANIMATION_DELAY_MS = 12
+ZOOM_ANIMATION_SCALE_STEP = 0.04
 PAPER_TINT = "#FEF9E7"
 TEXT_COLOR = "#333333"
 SELECTION_BG = "#BFD6FF"
@@ -29,6 +32,23 @@ PREFERRED_FONT_FAMILIES = [
     "QEGHHughes",
     "QEPhillips",
 ]
+DEFAULT_FILE_DIALOG_DIR = os.path.join(os.path.expanduser("~"), "Documents")
+last_file_dialog_dir = {"path": None}
+
+
+def get_file_dialog_start_dir():
+    remembered = last_file_dialog_dir["path"]
+    if remembered and os.path.isdir(remembered):
+        return remembered
+    if os.path.isdir(DEFAULT_FILE_DIALOG_DIR):
+        return DEFAULT_FILE_DIALOG_DIR
+    return os.path.expanduser("~")
+
+
+def remember_file_dialog_dir(filepath):
+    directory = os.path.dirname(filepath)
+    if directory and os.path.isdir(directory):
+        last_file_dialog_dir["path"] = directory
 
 #function for custom tkinter mode:
 def toggle_mode(new_toggle_mode):
@@ -36,6 +56,7 @@ def toggle_mode(new_toggle_mode):
 
 def save_file(screen , text_edit):
     filepath = filedialog.asksaveasfilename(
+        initialdir=get_file_dialog_start_dir(),
         filetypes=[
             ("Text Files" , "*.txt"),
             ("C program" , "*.c"),
@@ -47,17 +68,21 @@ def save_file(screen , text_edit):
     )
 
     if not filepath:
-        return
+        return False
     
     with open(filepath, "w", encoding="utf-8") as f:
         content = text_edit.get("1.0", "end-1c")
         f.write(content) 
 
+    remember_file_dialog_dir(filepath)
     screen.title(f"filepath: {filepath}")
+    mark_document_clean(text_edit)
+    return True
 
 
 def open_file(screen , text_edit):
     filepath = filedialog.askopenfilename(
+        initialdir=get_file_dialog_start_dir(),
         filetypes=[
             ("Text Files" , "*.txt"),
             ("C program" , "*.c"),
@@ -69,14 +94,17 @@ def open_file(screen , text_edit):
     )
 
     if not filepath:
-        return
+        return False
     
     text_edit.delete("1.0", END)
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
         text_edit.insert(END, content)
 
+    remember_file_dialog_dir(filepath)
     screen.title(f"filepath: {filepath}")
+    mark_document_clean(text_edit)
+    return True
 
 
 def update_status_bar(text_edit , status_bar):
@@ -175,6 +203,10 @@ def freeze_existing_text_font(text_edit, family, size):
 
 def get_scaled_font_size(base_size, zoom_percent):
     return max(1, int(round(base_size * zoom_percent / 100)))
+
+
+def get_scaled_font_size_from_scale(base_size, zoom_scale):
+    return max(1, int(round(base_size * zoom_scale)))
 
 
 def normalize_font_name(name):
@@ -314,13 +346,18 @@ def main():
     editor_frame.columnconfigure(1, weight=0)
 
     font_state = {"size": 18, "family": get_default_font_family()}
-    zoom_state = {"percent": 100}
+    zoom_state = {"scale": 1.0}
+    zoom_target_state = {"scale": 1.0}
+    zoom_animation_job = {"id": None}
     current_font_size = {"value": font_state["size"]}
     frozen_base_fonts = {}
     _font_list, available_by_lower, available_by_normalized = build_available_font_maps()
 
     def get_display_font_size():
-        return get_scaled_font_size(font_state["size"], zoom_state["percent"])
+        return get_scaled_font_size_from_scale(font_state["size"], zoom_state["scale"])
+
+    def clamp_zoom_scale(raw_scale):
+        return max(MIN_ZOOM_SCALE, min(MAX_ZOOM_SCALE, float(raw_scale)))
 
     #font will be replaced by the value passed on from option_font
     font = customtkinter.CTkFont(family=font_state["family"] , size=get_display_font_size())
@@ -336,6 +373,8 @@ def main():
         undo=True,
     )
 
+    tk_text = text_edit._textbox if hasattr(text_edit, "_textbox") else text_edit
+
     #Wrap ="none " will wont alloww to break the line , but warp="word " will help to break the line
     text_edit.grid(row=0, column=0, sticky="nsew")
 
@@ -350,8 +389,6 @@ def main():
     notebook_refresh_job = {"id": None}
 
     def apply_notebook_style():
-        tk_text = text_edit._textbox if hasattr(text_edit, "_textbox") else text_edit
-
         tk_text.configure(
             background=PAPER_TINT,
             foreground=TEXT_COLOR,
@@ -374,8 +411,11 @@ def main():
         notebook_refresh_job["id"] = None
         apply_notebook_style()
 
-    def refresh_editor_ui(event=None):
+    def update_status_ui(event=None):
         update_status_bar(text_edit , status_bar)
+
+    def refresh_editor_ui(event=None):
+        update_status_ui()
         schedule_notebook_refresh()
 
     def apply_font_size(new_size):
@@ -386,16 +426,19 @@ def main():
         tag_name, frozen_font = freeze_existing_text_font(
             text_edit,
             previous_family,
-            get_scaled_font_size(previous_size, zoom_state["percent"]),
+            get_scaled_font_size_from_scale(previous_size, zoom_state["scale"]),
         )
         frozen_base_fonts[tag_name] = {"font": frozen_font, "base_size": previous_size}
 
         current_font_size["value"] = clamped_size
         font_state["size"] = clamped_size
+        zoom_state["scale"] = clamp_zoom_scale(zoom_state["scale"])
+        zoom_target_state["scale"] = clamp_zoom_scale(zoom_target_state["scale"])
         font.configure(size=get_display_font_size())
         font_size_label.configure(text=f"Text Size: {clamped_size}")
         toolbar_controls["set_size"](clamped_size)
         toolbar_controls["refresh_tag_fonts"]()
+        zoom_label.configure(text=f"Zoom: {int(round(zoom_state['scale'] * 100))}%")
 
     def apply_font_family(new_family):
         mapped_family = font_option_to_family.get(new_family, new_family)
@@ -414,7 +457,7 @@ def main():
         tag_name, frozen_font = freeze_existing_text_font(
             text_edit,
             previous_family,
-            get_scaled_font_size(previous_size, zoom_state["percent"]),
+            get_scaled_font_size_from_scale(previous_size, zoom_state["scale"]),
         )
         frozen_base_fonts[tag_name] = {"font": frozen_font, "base_size": previous_size}
 
@@ -438,31 +481,56 @@ def main():
     toolbar_frame.grid(row=0, column=1, sticky="ew", padx=(8, 10), pady=(10, 0))
     toolbar_controls["refresh_notebook_style"] = schedule_notebook_refresh
 
-    def apply_zoom_percent(new_zoom_percent):
-        clamped_zoom = max(MIN_ZOOM_PERCENT, min(MAX_ZOOM_PERCENT, int(new_zoom_percent)))
-        if clamped_zoom == zoom_state["percent"]:
-            return
+    def apply_zoom_scale(new_zoom_scale):
+        clamped_scale = clamp_zoom_scale(new_zoom_scale)
+        if abs(clamped_scale - zoom_state["scale"]) < 0.0001:
+            return False
 
-        zoom_state["percent"] = clamped_zoom
+        zoom_state["scale"] = clamped_scale
         font.configure(size=get_display_font_size())
 
         for font_info in frozen_base_fonts.values():
-            font_info["font"].configure(size=get_scaled_font_size(font_info["base_size"], clamped_zoom))
+            font_info["font"].configure(
+                size=get_scaled_font_size_from_scale(font_info["base_size"], clamped_scale)
+            )
 
         toolbar_controls["refresh_tag_fonts"]()
-        zoom_label.configure(text=f"Zoom: {clamped_zoom}%")
+        zoom_label.configure(text=f"Zoom: {int(round(clamped_scale * 100))}%")
+        return True
+
+    def run_zoom_animation():
+        zoom_animation_job["id"] = None
+
+        current_zoom = zoom_state["scale"]
+        target_zoom = zoom_target_state["scale"]
+        if abs(current_zoom - target_zoom) < 0.0001:
+            return
+
+        delta = target_zoom - current_zoom
+        step = min(ZOOM_ANIMATION_SCALE_STEP, abs(delta))
+        next_zoom = current_zoom + step if delta > 0 else current_zoom - step
+
+        changed = apply_zoom_scale(next_zoom)
+        if changed:
+            update_status_ui()
+
+        if abs(zoom_state["scale"] - zoom_target_state["scale"]) >= 0.0001:
+            zoom_animation_job["id"] = screen.after(ZOOM_ANIMATION_DELAY_MS, run_zoom_animation)
+
+    def request_zoom(step_percent):
+        requested = zoom_target_state["scale"] + (step_percent / 100.0)
+        zoom_target_state["scale"] = clamp_zoom_scale(requested)
+
+        if zoom_animation_job["id"] is None:
+            zoom_animation_job["id"] = screen.after(0, run_zoom_animation)
 
     def zoom_in(event=None):
-        apply_zoom_percent(zoom_state["percent"] + ZOOM_STEP_PERCENT)
-        schedule_notebook_refresh()
+        request_zoom(ZOOM_STEP_PERCENT)
         return "break"
 
     def zoom_out(event=None):
-        apply_zoom_percent(zoom_state["percent"] - ZOOM_STEP_PERCENT)
-        schedule_notebook_refresh()
+        request_zoom(-ZOOM_STEP_PERCENT)
         return "break"
-
-    tk_text = text_edit._textbox if hasattr(text_edit, "_textbox") else text_edit
 
     def undo_text(event=None):
         try:
@@ -498,20 +566,47 @@ def main():
 
     scrollbar.configure(command=text_edit.yview)
     text_edit.configure(yscrollcommand=scrollbar.set)
+    mark_document_clean(text_edit)
 
     #creating frame
     frame = customtkinter.CTkFrame(screen)
     frame.grid_columnconfigure(0, weight=1)
-    save_btn = customtkinter.CTkButton(frame , text="Save" , command=lambda: save_file(screen ,  text_edit))
+    def save_current_document():
+        return save_file(screen, text_edit)
+
+    save_btn = customtkinter.CTkButton(frame , text="Save" , command=save_current_document)
+
     def open_file_and_refresh():
-        open_file(screen, text_edit)
+        proceed = confirm_unsaved_changes(
+            screen,
+            text_edit,
+            save_current_document,
+            action_name="opening another file",
+        )
+        if not proceed:
+            return
+
+        opened = open_file(screen, text_edit)
+        if not opened:
+            return
+
         refresh_editor_ui()
+
+    def on_window_close():
+        proceed = confirm_unsaved_changes(
+            screen,
+            text_edit,
+            save_current_document,
+            action_name="closing",
+        )
+        if proceed:
+            screen.destroy()
 
     open_btn = customtkinter.CTkButton(frame , text="Open folder" , command=open_file_and_refresh)
     zoom_in_btn = customtkinter.CTkButton(frame, text="Zoom In (+)", command=zoom_in)
     zoom_out_btn = customtkinter.CTkButton(frame, text="Zoom Out (-)", command=zoom_out)
     font_size_label = customtkinter.CTkLabel(frame, text=f"Text Size: {current_font_size['value']}")
-    zoom_label = customtkinter.CTkLabel(frame, text=f"Zoom: {zoom_state['percent']}%")
+    zoom_label = customtkinter.CTkLabel(frame, text=f"Zoom: {int(round(zoom_state['scale'] * 100))}%")
     save_btn.grid(row=0, column=0 , padx=10 , pady=(10, 6) , sticky="ew")
     open_btn.grid(row=1 , column=0 , padx=10 , pady=6 , sticky="ew")
     zoom_in_btn.grid(row=2, column=0, padx=10, pady=6, sticky="ew")
@@ -525,10 +620,10 @@ def main():
     frame.grid(row=0,column=0 , rowspan=2, sticky="ns", padx=(10, 6), pady=(10, 6)) #ns = expand the frame to north and south
 
     text_edit.bind("<KeyRelease>" , refresh_editor_ui)
-    text_edit.bind("<ButtonRelease-1>" , refresh_editor_ui)
-    text_edit.bind("<MouseWheel>" , refresh_editor_ui)
-    text_edit.bind("<Button-4>" , refresh_editor_ui)
-    text_edit.bind("<Button-5>" , refresh_editor_ui)
+    text_edit.bind("<ButtonRelease-1>" , update_status_ui)
+    text_edit.bind("<MouseWheel>" , update_status_ui)
+    text_edit.bind("<Button-4>" , update_status_ui)
+    text_edit.bind("<Button-5>" , update_status_ui)
     text_edit.bind("<Control-MouseWheel>", lambda event: zoom_in() if event.delta > 0 else zoom_out())
     text_edit.bind("<Control-Button-4>", zoom_in)
     text_edit.bind("<Control-Button-5>", zoom_out)
@@ -544,6 +639,7 @@ def main():
     screen.bind("<Control-b>", toolbar_controls["toggle_bold"])
     screen.bind("<Control-i>", toolbar_controls["toggle_italic"])
     screen.bind("<F5>", toolbar_controls["refresh_style_shortcut"])
+    screen.protocol("WM_DELETE_WINDOW", on_window_close)
 
     refresh_editor_ui()
 
