@@ -44,6 +44,7 @@ A modern desktop text editor built with Python + CustomTkinter.
 - Python 3
 - `customtkinter`
 - Tkinter (normally included with Python)
+- More to come
 
 Install dependency:
 
